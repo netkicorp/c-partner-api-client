@@ -77,3 +77,4 @@ fabric.properties
 
 # Debug files
 *.dSYM/
+.idea/

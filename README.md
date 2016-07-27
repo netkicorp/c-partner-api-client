@@ -75,10 +75,10 @@ void NKSetApiKey(NKHandle *handle, char *apiKey);
 void NKSetUserKey(NKHandle *handle, unsigned char *userKey, size_t keySize);
 
 // Set NKHandle's Partner Signing Key for Distributed API Access
-void NKSetPartnerSigningKey(NKHandle *handle, secp256k1_pubkey *pubkey);
+void NKSetPartnerSigningKey(NKHandle *handle, unsigned char *der_pubkey, size_t len);
 
 // Set NKHandle's Key Signature for Distributed API Access
-void NKSetKeySignature(NKHandle *handle, secp256k1_ecdsa_signature *sig);
+void NKSetKeySignature(NKHandle *handle, unsigned char *der_sig, size_t len);
 ```
 
 #### Wallet Name Operations

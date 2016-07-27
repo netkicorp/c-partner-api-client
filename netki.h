@@ -26,7 +26,6 @@ POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "cJSON.h"
-#include <secp256k1.h>
 
 #ifndef C_NETKI_H
 #define C_NETKI_H
@@ -62,8 +61,10 @@ typedef struct {
     char *apiKey;
     char *apiUrl;
     unsigned char *userKey;
-    secp256k1_pubkey *partnerSigningKey;
-    secp256k1_ecdsa_signature *keySignature;
+    unsigned char *partnerSigningKey;
+    unsigned char *keySignature;
+    size_t keySignatureLen;
+    size_t partnerSigningKeyLen;
     NKHttpCallback httpCallback;
 } NKHandle;
 
@@ -101,11 +102,6 @@ typedef struct {
     NKWallet *wallets;
 } NKWalletName;
 
-// Internal Operations
-int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKResult *result);
-unsigned char *NK_PubkeySerializeDER(secp256k1_context *ctx, secp256k1_pubkey *pubkey, size_t *strLen);
-char *NK_BytesToHexString(uint8_t *data, size_t length);
-
 // Wallet Name Operations
 extern int NKGetWalletNames(NKHandle *handle, char *domain, char *externalID, NKWalletName **walletNames);
 extern int NKSetCurrencyAddress(NKWalletName *wn, char *currency, char *walletAddress);
@@ -134,9 +130,12 @@ extern void NKSetPartnerID(NKHandle *handle, char* partnerId);
 extern void NKSetApiKey(NKHandle *handle, char *apiKey);
 extern void NKSetApiUrl(NKHandle *handle, char *apiUrl);
 extern void NKSetUserKey(NKHandle *handle, unsigned char *userKey32);
-extern void NKSetPartnerSigningKey(NKHandle *handle, secp256k1_pubkey *pubkey);
-extern void NKSetKeySignature(NKHandle *handle, secp256k1_ecdsa_signature *sig);
+extern void NKSetPartnerSigningKey(NKHandle *handle, unsigned char *der_pubkey, size_t len);
+extern void NKSetKeySignature(NKHandle *handle, unsigned char *der_sig, size_t len);
 extern void NKSetHttpCallback(NKHandle *handle, NKHttpCallback funcPtr);
+
+// Utility Functionality
+char *NK_BytesToHexString(uint8_t *data, size_t length);
 
 # ifdef __cplusplus
 }

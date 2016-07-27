@@ -28,9 +28,29 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <ntsid.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "secp256k1.h"
 #include "../netki.h"
 #include "../sha2.h"
 #include "curlHttpCallbackImpl.h"
+
+unsigned char *PubkeySerializeDER(secp256k1_context *ctx, secp256k1_pubkey *pubkey, size_t *strLen) {
+
+    unsigned char *pointstr = calloc(88, sizeof(unsigned char));
+    size_t outputLen = 65;
+    static const uint8_t oidSeq[] = {0x30, 0x56, 0x30, 0x10, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, 0x06,
+                                     0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A, 0x03, 0x42, 0x00};
+    memcpy(pointstr, oidSeq, 23);
+
+    int serializeRes = secp256k1_ec_pubkey_serialize(ctx, pointstr + 23, &outputLen, pubkey, SECP256K1_EC_UNCOMPRESSED);
+    if (!serializeRes) {
+        free(pointstr);
+        return NULL;
+    }
+
+    *strLen = 88;
+    return pointstr;
+}
 
 int main() {
 
@@ -51,7 +71,10 @@ int main() {
     secp256k1_pubkey partnerPubKey, userPubKey;
     secp256k1_ecdsa_signature keySig;
     unsigned char *userPubKeyDER;
+    size_t partnerPubKeyLen, partnerKeySigDERLen = 255;
     int dontCare = 0;
+
+    unsigned char *partnerKeySigDER = calloc(255, sizeof(char));
 
     secpCtx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     dontCare = secp256k1_ec_pubkey_create(secpCtx, &partnerPubKey, partnerKey);
@@ -59,16 +82,17 @@ int main() {
 
     size_t userDerLen = 88;
     unsigned char MSG[32];
-    userPubKeyDER = NK_PubkeySerializeDER(secpCtx, &userPubKey, &userDerLen);
+    userPubKeyDER = PubkeySerializeDER(secpCtx, &userPubKey, &userDerLen);
     BRSHA256(&MSG, userPubKeyDER, userDerLen);
 
     secp256k1_ecdsa_sign(secpCtx, &keySig, MSG, partnerKey, NULL, NULL);
+    secp256k1_ecdsa_signature_serialize_der(secpCtx, partnerKeySigDER, &partnerKeySigDERLen, &keySig);
 
     NKHandle *handle = NKHandleInit();
     NKSetApiUrl(handle, "http://localhost:5000");
     NKSetUserKey(handle, userKey);
-    NKSetPartnerSigningKey(handle, &partnerPubKey);
-    NKSetKeySignature(handle, &keySig);
+    NKSetPartnerSigningKey(handle, PubkeySerializeDER(secpCtx, &partnerPubKey, &partnerPubKeyLen), partnerPubKeyLen);
+    NKSetKeySignature(handle, partnerKeySigDER, partnerKeySigDERLen);
     NKSetHttpCallback(handle, CurlHttpImplementation);
 
     NKWalletName **walletNames = calloc(1, sizeof(NKWalletName *));

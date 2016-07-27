@@ -30,14 +30,18 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <stdlib.h>
 #include <printf.h>
 #include "netki.h"
+#include "secp256k1.h"
 #include "sha2.h"
+
+// Internal Operations
+int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKResult *result);
+unsigned char *NK_PubkeySerializeDER(secp256k1_context *ctx, secp256k1_pubkey *pubkey, size_t *strLen);
 
 /*
  * NKHandle Utilities
  */
 NKHandle *NKHandleInit() {
     NKHandle *handle = calloc(1, sizeof(NKHandle));
-    handle->flags = 0;
     handle->partnerId = NULL;
     handle->apiKey = NULL;
     handle->apiUrl = strdup("https://api.netki.com");
@@ -65,12 +69,14 @@ void NKSetUserKey(NKHandle *handle, unsigned char *userKey32) {
     handle->userKey = userKey32;
 }
 
-void NKSetPartnerSigningKey(NKHandle *handle, secp256k1_pubkey *pubkey) {
-    handle->partnerSigningKey = pubkey;
+void NKSetPartnerSigningKey(NKHandle *handle, unsigned char *der_pubkey, size_t len) {
+    handle->partnerSigningKey = der_pubkey;
+    handle->partnerSigningKeyLen = len;
 }
 
-void NKSetKeySignature(NKHandle *handle, secp256k1_ecdsa_signature *sig) {
-    handle->keySignature = sig;
+void NKSetKeySignature(NKHandle *handle, unsigned char *der_sig, size_t len) {
+    handle->keySignature = der_sig;
+    handle->keySignatureLen = len;
 }
 
 void NKSetHttpCallback(NKHandle *handle, NKHttpCallback funcPtr) {
@@ -620,7 +626,7 @@ int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKRe
     secp256k1_pubkey userPubkey;
     secp256k1_context *ecdsaCtx;
 
-    size_t userPubkeyDataLen, partnerPubkeyDataLen, sigDataLen, requestSigDerLen = 255, partnerKeySigLen = 255;
+    size_t userPubkeyDataLen, sigDataLen, requestSigDerLen = 255;
 
     // Build URL
     char finalUrl[strlen(handle->apiUrl) + strlen(url) + 1];
@@ -638,7 +644,7 @@ int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKRe
 
     } else if (handle->userKey && handle->keySignature && handle->partnerSigningKey) {
 
-        unsigned char *userPubKeyDER, *partnerPubKeyDER, *requestSigDer, *requestKeySigDer;
+        unsigned char *userPubKeyDER, *requestSigDer;
 
         // Create SECP256K1 Context
         ecdsaCtx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
@@ -652,7 +658,6 @@ int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKRe
 
         // Serialize User Public Key and Partner Public Key using DER-Encoding
         userPubKeyDER = NK_PubkeySerializeDER(ecdsaCtx, &userPubkey, &userPubkeyDataLen);
-        partnerPubKeyDER = NK_PubkeySerializeDER(ecdsaCtx, handle->partnerSigningKey, &partnerPubkeyDataLen);
 
         // Setup Data to Hash->Sign
         sigDataLen = strlen(finalUrl) + 1;
@@ -677,18 +682,9 @@ int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKRe
 
         // Convert Signatures to DER
         requestSigDer = calloc(requestSigDerLen, sizeof(char));
-        int serializeRes = secp256k1_ecdsa_signature_serialize_der(ecdsaCtx, requestSigDer, &requestSigDerLen,
-                                                                   &requestSig);
+        int serializeRes = secp256k1_ecdsa_signature_serialize_der(ecdsaCtx, requestSigDer, &requestSigDerLen, &requestSig);
         if (!serializeRes) {
             fprintf(stderr, "Signature Serialization to DER-encoding failed");
-            return 0;
-        }
-
-        requestKeySigDer = calloc(partnerKeySigLen, sizeof(char));
-        int keysigRes = secp256k1_ecdsa_signature_serialize_der(ecdsaCtx, requestKeySigDer, &partnerKeySigLen,
-                                                                handle->keySignature);
-        if (!keysigRes) {
-            fprintf(stderr, "Partner Key Signature Serialization to DER-encoding failed");
             return 0;
         }
 
@@ -698,8 +694,8 @@ int NKProcessRequest(NKHandle *handle, char *url, char *method, char *data, NKRe
         headers[0] = _CreateHeader("Content-Type", "application/json");
         headers[1] = _CreateHeader("X-Identity", NK_BytesToHexString(userPubKeyDER, userPubkeyDataLen));
         headers[2] = _CreateHeader("X-Signature", NK_BytesToHexString(requestSigDer, requestSigDerLen));
-        headers[3] = _CreateHeader("X-Partner-Key", NK_BytesToHexString(partnerPubKeyDER, partnerPubkeyDataLen));
-        headers[4] = _CreateHeader("X-Partner-KeySig", NK_BytesToHexString(requestKeySigDer, partnerKeySigLen));
+        headers[3] = _CreateHeader("X-Partner-Key", NK_BytesToHexString(handle->partnerSigningKey, handle->partnerSigningKeyLen));
+        headers[4] = _CreateHeader("X-Partner-KeySig", NK_BytesToHexString(handle->keySignature, handle->keySignatureLen));
     }
 
     // Allocate Return Data Buffer
